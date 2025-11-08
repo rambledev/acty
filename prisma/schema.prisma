@@ -1,0 +1,187 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===============================
+// User Models
+// ===============================
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+  STUDENT
+}
+
+enum TitlePrefix {
+  MR         // นาย
+  MRS        // นาง
+  MISS       // นางสาว
+  ASSOC_PROF // ผศ.
+  ASST_PROF  // ผู้ช่วยศาสตราจารย์
+  DR         // ดร.
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  role      UserRole
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  employee Employee?
+  student  Student?
+
+  @@map("users")
+}
+
+model Employee {
+  id           String      @id @default(cuid())
+  userId       String      @unique
+  titlePrefix  TitlePrefix
+  firstName    String
+  lastName     String
+  employeeCode String      @unique
+  affiliation  String // สังกัด
+  email        String      @unique
+  phone        String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activities Activity[]
+
+  @@map("employees")
+}
+
+model Student {
+  id           String      @id @default(cuid())
+  userId       String      @unique
+  titlePrefix  TitlePrefix
+  firstName    String
+  lastName     String
+  studentCode  String      @unique
+  faculty      String // คณะ
+  major        String // สาขา
+  email        String      @unique
+  phone        String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Relations
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityHistories ActivityHistory[]
+
+  @@map("students")
+}
+
+// ===============================
+// Activity Models
+// ===============================
+
+enum ActivityType {
+  CENTRAL    // ส่วนกลาง
+  FACULTY    // คณะ
+  OPTIONAL   // เสรี
+}
+
+enum ActivityStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+}
+
+model Activity {
+  id          String         @id @default(cuid())
+  name        String
+  type        ActivityType
+  hours       Float // จำนวนชั่วโมง
+  date        DateTime // วันที่จัดกิจกรรม
+  time        String? // เวลา
+  location    String?
+  description String?
+  status      ActivityStatus @default(ACTIVE)
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Relations
+  createdBy         Employee          @relation(fields: [createdById], references: [id])
+  activityHistories ActivityHistory[]
+  qrCodes           QRCode[]
+
+  @@map("activities")
+}
+
+// ===============================
+// QR Code Models
+// ===============================
+
+model QRCode {
+  id         String   @id @default(cuid())
+  activityId String
+  code       String   @unique // QR Code unique string
+  isUsed     Boolean  @default(false)
+  usedBy     String? // Student ID who used this QR
+  usedAt     DateTime?
+  expiresAt  DateTime? // Optional: QR Code expiration
+  createdAt  DateTime @default(now())
+
+  // Relations
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([activityId])
+  @@map("qr_codes")
+}
+
+// ===============================
+// Activity History Models
+// ===============================
+
+model ActivityHistory {
+  id         String   @id @default(cuid())
+  studentId  String
+  activityId String
+  hours      Float // จำนวนชั่วโมงที่ได้รับ
+  joinedAt   DateTime @default(now())
+  qrCode     String // QR Code ที่ใช้สแกน
+  createdAt  DateTime @default(now())
+
+  // Relations
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, activityId]) // นักศึกษาแต่ละคนเข้าร่วมกิจกรรมแต่ละอันได้ครั้งเดียว
+  @@index([studentId])
+  @@index([activityId])
+  @@map("activity_histories")
+}
+
+// ===============================
+// Settings Models
+// ===============================
+
+model SystemSettings {
+  id                 String   @id @default(cuid())
+  requiredHours      Float    @default(20) // จำนวนชั่วโมงที่ต้องสะสม
+  requiredCentral    Float?   @default(0) // ชั่วโมงขั้นต่ำส่วนกลาง
+  requiredFaculty    Float?   @default(0) // ชั่วโมงขั้นต่ำคณะ
+  requiredOptional   Float?   @default(0) // ชั่วโมงขั้นต่ำเสรี
+  academicYear       String   @default("2567")
+  semester           String   @default("1")
+  updatedAt          DateTime @updatedAt
+
+  @@map("system_settings")
+}
