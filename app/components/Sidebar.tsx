@@ -14,7 +14,7 @@ export default function Sidebar({ role }: SidebarProps) {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   const employeeMenuItems = [
-    { icon: Plus, label: 'สร้างกิจกรรม', href: '/emp/create' },
+    { icon: Plus, label: 'กิจกรรม', href: '/emp/activity' },
     { icon: History, label: 'ประวัติการสร้าง', href: '/emp/history' },
   ];
 

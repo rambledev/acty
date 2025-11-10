@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Activity" ADD COLUMN     "group" INTEGER NOT NULL DEFAULT 1,
+ADD COLUMN     "hours" INTEGER NOT NULL DEFAULT 1;

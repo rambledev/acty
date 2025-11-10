@@ -1,6 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,178 +8,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ===============================
-// User Models
-// ===============================
-
-enum UserRole {
-  ADMIN
-  EMPLOYEE
-  STUDENT
+// ======================= ENUMS =======================
+enum ActivityGroup {
+  CENTRAL    // กิจกรรมกลาง (Group 1)
+  FACULTY    // กิจกรรมคณะ (Group 2)  
+  FREE       // กิจกรรมเสรี (Group 3)
 }
 
-enum TitlePrefix {
-  MR         // นาย
-  MRS        // นาง
-  MISS       // นางสาว
-  ASSOC_PROF // ผศ.
-  ASST_PROF  // ผู้ช่วยศาสตราจารย์
-  DR         // ดร.
+enum QRType {
+  SINGLE_USE    // 1 QR ต่อ 1 คน
+  MULTI_USE     // 1 QR ต่อหลายคน (ไม่จำกัด)
+  LIMITED_USE   // 1 QR ต่อหลายคน但有จำนวนจำกัด
 }
 
-model User {
-  id        String   @id @default(cuid())
-  username  String   @unique
-  password  String
-  role      UserRole
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ======================= MODELS =======================
 
-  // Relations
-  employee Employee?
-  student  Student?
-
-  @@map("users")
-}
-
-model Employee {
-  id           String      @id @default(cuid())
-  userId       String      @unique
-  titlePrefix  TitlePrefix
-  firstName    String
-  lastName     String
-  employeeCode String      @unique
-  affiliation  String // สังกัด
-  email        String      @unique
-  phone        String
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  // Relations
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  activities Activity[]
-
-  @@map("employees")
-}
-
+// ข้อมูลนักศึกษา
 model Student {
-  id           String      @id @default(cuid())
-  userId       String      @unique
-  titlePrefix  TitlePrefix
-  firstName    String
-  lastName     String
-  studentCode  String      @unique
-  faculty      String // คณะ
-  major        String // สาขา
-  email        String      @unique
-  phone        String
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id        Int               @id @default(autoincrement())
+  stdCode   String            @unique @map("std_code")
+  title     String?           // คำนำหน้า (นาย, นาง, นางสาว)
+  name      String
+  faculty   String?
+  program   String?
+  
+  // ข้อมูลชั่วโมงกิจกรรม
+  centralHours  Int           @default(0)  // ชม. กิจกรรมกลาง
+  facultyHours  Int           @default(0)  // ชม. กิจกรรมคณะ
+  freeHours     Int           @default(0)  // ชม. กิจกรรมเสรี
+  
+  qrcodes   QRCode[]          // 1 นศ. อาจมีหลาย QR Code
+  histories ActivityHistory[] // ประวัติการสแกน
 
-  // Relations
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  activityHistories ActivityHistory[]
-
-  @@map("students")
+  @@map("tb_student")
 }
 
-// ===============================
-// Activity Models
-// ===============================
-
-enum ActivityType {
-  CENTRAL    // ส่วนกลาง
-  FACULTY    // คณะ
-  OPTIONAL   // เสรี
-}
-
-enum ActivityStatus {
-  ACTIVE
-  INACTIVE
-  CANCELLED
-}
-
+// ข้อมูลกิจกรรม
 model Activity {
-  id          String         @id @default(cuid())
-  name        String
-  type        ActivityType
-  hours       Float // จำนวนชั่วโมง
-  date        DateTime // วันที่จัดกิจกรรม
-  time        String? // เวลา
-  location    String?
-  description String?
-  status      ActivityStatus @default(ACTIVE)
-  createdById String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  // Relations
-  createdBy         Employee          @relation(fields: [createdById], references: [id])
-  activityHistories ActivityHistory[]
-  qrCodes           QRCode[]
+  id                Int               @id @default(autoincrement())
+  name              String
+  description       String?
+  startDate         DateTime?
+  endDate           DateTime?
+  group             ActivityGroup     @default(CENTRAL) // ใช้ enum แทน
+  hours             Int               @default(1) // จำนวนชั่วโมงที่ได้รับ
+  location          String?           // สถานที่จัดกิจกรรม
+  organizer         String?           // ผู้จัดกิจกรรม
+  
+  qrcodes           QRCode[]          // กิจกรรมนี้มีหลาย QR
+  activityHistories ActivityHistory[] // ประวัติการสแกน
 
   @@map("activities")
 }
 
-// ===============================
-// QR Code Models
-// ===============================
-
+// QR Code สําหรับใช้สแกนกิจกรรม
 model QRCode {
-  id         String   @id @default(cuid())
-  activityId String
-  code       String   @unique // QR Code unique string
-  isUsed     Boolean  @default(false)
-  usedBy     String? // Student ID who used this QR
-  usedAt     DateTime?
-  expiresAt  DateTime? // Optional: QR Code expiration
-  createdAt  DateTime @default(now())
+  id          Int               @id @default(autoincrement())
+  code        String            @unique
+  activityId  Int
+  usedBy      Int?              // สำหรับแบบ 1:1 (optional)
+  isUsed      Boolean           @default(false)
+  usedAt      DateTime?
+  
+  // ✅ เพิ่มฟิลด์สำหรับจัดการ expiration และประเภท
+  expiredAt   DateTime?         // เวลาหมดอายุของ QR
+  maxUses     Int               @default(1)    // จำนวนครั้งที่ใช้ได้สูงสุด
+  currentUses Int               @default(0)    // จำนวนครั้งที่ใช้ไปแล้ว
+  type        QRType            @default(SINGLE_USE) // ประเภท QR
+  
+  createdAt   DateTime          @default(now())
 
-  // Relations
-  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  // ความสัมพันธ์
+  activity    Activity          @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  student     Student?          @relation(fields: [usedBy], references: [id], onDelete: SetNull)
+  
+  // ✅ เปลี่ยนเป็น one-to-many (1 QR มีหลายประวัติ)
+  histories   ActivityHistory[] 
 
-  @@index([code])
-  @@index([activityId])
   @@map("qr_codes")
 }
 
-// ===============================
-// Activity History Models
-// ===============================
-
+// ประวัติการสแกนกิจกรรม
 model ActivityHistory {
-  id         String   @id @default(cuid())
-  studentId  String
-  activityId String
-  hours      Float // จำนวนชั่วโมงที่ได้รับ
-  joinedAt   DateTime @default(now())
-  qrCode     String // QR Code ที่ใช้สแกน
-  createdAt  DateTime @default(now())
+  id          Int       @id @default(autoincrement())
+  activityId  Int
+  qrCodeId    Int       // ไม่ใช่ unique แล้ว (รองรับ MULTI_USE)
+  studentId   Int
+  scannedAt   DateTime  @default(now())
+  hoursEarned Int       @default(1) // จำนวนชั่วโมงที่ได้จากการสแกนนี้
 
-  // Relations
-  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  // ความสัมพันธ์
+  activity    Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  qrCode      QRCode    @relation(fields: [qrCodeId], references: [id])
+  student     Student   @relation(fields: [studentId], references: [id])
 
-  @@unique([studentId, activityId]) // นักศึกษาแต่ละคนเข้าร่วมกิจกรรมแต่ละอันได้ครั้งเดียว
-  @@index([studentId])
-  @@index([activityId])
+  @@unique([qrCodeId, studentId]) // ป้องกันการสแกนซ้ำโดยคนเดียวกัน
   @@map("activity_histories")
 }
 
-// ===============================
-// Settings Models
-// ===============================
+// ✅ ตารางสำหรับเก็บ requirement ของแต่ละคณะ
+model FacultyRequirement {
+  id          Int      @id @default(autoincrement())
+  faculty     String   @unique // ชื่อคณะ
+  centralMin  Int      @default(90) // กิจกรรมกลางขั้นต่ำ
+  facultyMin  Int      @default(90) // กิจกรรมคณะขั้นต่ำ  
+  freeMin     Int      @default(50) // กิจกรรมเสรีขั้นต่ำ
 
-model SystemSettings {
-  id                 String   @id @default(cuid())
-  requiredHours      Float    @default(20) // จำนวนชั่วโมงที่ต้องสะสม
-  requiredCentral    Float?   @default(0) // ชั่วโมงขั้นต่ำส่วนกลาง
-  requiredFaculty    Float?   @default(0) // ชั่วโมงขั้นต่ำคณะ
-  requiredOptional   Float?   @default(0) // ชั่วโมงขั้นต่ำเสรี
-  academicYear       String   @default("2567")
-  semester           String   @default("1")
-  updatedAt          DateTime @updatedAt
-
-  @@map("system_settings")
+  @@map("faculty_requirements")
 }
