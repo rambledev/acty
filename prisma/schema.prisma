@@ -1,4 +1,4 @@
-// schema.prisma
+// schema.prisma - เรียบง่าย ใช้ users เป็นหลัก
 generator client {
   provider = "prisma-client-js"
 }
@@ -18,27 +18,69 @@ enum ActivityGroup {
 enum QRType {
   SINGLE_USE    // 1 QR ต่อ 1 คน
   MULTI_USE     // 1 QR ต่อหลายคน (ไม่จำกัด)
-  LIMITED_USE   // 1 QR ต่อหลายคน但有จำนวนจำกัด
+  LIMITED_USE   // 1 QR ต่อหลายคนแต่มีจำนวนจำกัด
+}
+
+enum ActivityStatus {
+  ACTIVE
+  INACTIVE 
+  CANCELLED
+}
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+  STUDENT
 }
 
 // ======================= MODELS =======================
 
-// ข้อมูลนักศึกษา
+// ผู้ใช้งานระบบ - ตารางหลักเก็บข้อมูลทุก role
+model User {
+  id            Int        @id @default(autoincrement())
+  email         String     @unique
+  name          String
+  role          UserRole   @default(STUDENT)
+  googleId      String?    @unique
+  picture       String?
+  title         String?       // คำนำหน้าชื่อ เช่น นาย, นางสาว
+  faculty       String?       // คณะ
+  program       String?       // สาขาวิชา (สำหรับนักศึกษา)
+  department    String?       // ภาควิชา (สำหรับพนักงาน)
+  stdCode       String?       // รหัสนักศึกษา
+  empCode       String?       // รหัสพนักงาน
+  centralHours  Int        @default(0)  // ชั่วโมงกิจกรรมกลาง
+  facultyHours  Int        @default(0)  // ชั่วโมงกิจกรรมคณะ
+  freeHours     Int        @default(0)  // ชั่วโมงกิจกรรมเสรี
+  lastLoginAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @default(now()) @updatedAt
+
+  // ความสัมพันธ์
+  activities    Activity[] // กิจกรรมที่สร้าง
+
+  @@map("users")
+}
+
+// ข้อมูลนักศึกษา - เก็บไว้สำหรับข้อมูลเพิ่มเติม (ไม่เชื่อมกับ users)
 model Student {
   id        Int               @id @default(autoincrement())
   stdCode   String            @unique @map("std_code")
-  title     String?           // คำนำหน้า (นาย, นาง, นางสาว)
+  title     String?
   name      String
   faculty   String?
   program   String?
   
-  // ข้อมูลชั่วโมงกิจกรรม
-  centralHours  Int           @default(0)  // ชม. กิจกรรมกลาง
-  facultyHours  Int           @default(0)  // ชม. กิจกรรมคณะ
-  freeHours     Int           @default(0)  // ชม. กิจกรรมเสรี
+  centralHours  Int           @default(0)
+  facultyHours  Int           @default(0)
+  freeHours     Int           @default(0)
   
-  qrcodes   QRCode[]          // 1 นศ. อาจมีหลาย QR Code
-  histories ActivityHistory[] // ประวัติการสแกน
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @default(now()) @updatedAt
+  
+  // ความสัมพันธ์
+  qrcodes       QRCode[]
+  histories     ActivityHistory[]
 
   @@map("tb_student")
 }
@@ -50,40 +92,45 @@ model Activity {
   description       String?
   startDate         DateTime?
   endDate           DateTime?
-  group             ActivityGroup     @default(CENTRAL) // ใช้ enum แทน
-  hours             Int               @default(1) // จำนวนชั่วโมงที่ได้รับ
-  location          String?           // สถานที่จัดกิจกรรม
-  organizer         String?           // ผู้จัดกิจกรรม
-  
-  qrcodes           QRCode[]          // กิจกรรมนี้มีหลาย QR
-  activityHistories ActivityHistory[] // ประวัติการสแกน
+  group             ActivityGroup     @default(CENTRAL)
+  hours             Int               @default(1)
+  location          String?
+  organizer         String?
+  status            ActivityStatus    @default(ACTIVE)
+  createdById       Int?              // อ้างอิงไปยัง users.id
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // ความสัมพันธ์
+  createdBy         User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  qrCodes           QRCode[]
+  activityHistories ActivityHistory[]
 
   @@map("activities")
 }
 
-// QR Code สําหรับใช้สแกนกิจกรรม
+// QR Code สำหรับใช้สแกนกิจกรรม
 model QRCode {
   id          Int               @id @default(autoincrement())
   code        String            @unique
   activityId  Int
-  usedBy      Int?              // สำหรับแบบ 1:1 (optional)
+  usedBy      Int?              // อ้างอิงไปยัง tb_student.id (ไม่ใช่ users.id)
   isUsed      Boolean           @default(false)
+  isActive    Boolean           @default(true)  // เปิด/ปิด QR Code
   usedAt      DateTime?
   
-  // ✅ เพิ่มฟิลด์สำหรับจัดการ expiration และประเภท
-  expiredAt   DateTime?         // เวลาหมดอายุของ QR
-  maxUses     Int               @default(1)    // จำนวนครั้งที่ใช้ได้สูงสุด
-  currentUses Int               @default(0)    // จำนวนครั้งที่ใช้ไปแล้ว
-  type        QRType            @default(SINGLE_USE) // ประเภท QR
+  expiredAt   DateTime?
+  maxUses     Int               @default(1)
+  currentUses Int               @default(0)
+  type        QRType            @default(SINGLE_USE)
   
   createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @default(now()) @updatedAt
 
   // ความสัมพันธ์
   activity    Activity          @relation(fields: [activityId], references: [id], onDelete: Cascade)
   student     Student?          @relation(fields: [usedBy], references: [id], onDelete: SetNull)
-  
-  // ✅ เปลี่ยนเป็น one-to-many (1 QR มีหลายประวัติ)
-  histories   ActivityHistory[] 
+  histories   ActivityHistory[]
 
   @@map("qr_codes")
 }
@@ -92,27 +139,29 @@ model QRCode {
 model ActivityHistory {
   id          Int       @id @default(autoincrement())
   activityId  Int
-  qrCodeId    Int       // ไม่ใช่ unique แล้ว (รองรับ MULTI_USE)
-  studentId   Int
+  qrCodeId    Int
+  studentId   Int       // อ้างอิงไปยัง tb_student.id
   scannedAt   DateTime  @default(now())
-  hoursEarned Int       @default(1) // จำนวนชั่วโมงที่ได้จากการสแกนนี้
+  hoursEarned Int       @default(1)
 
   // ความสัมพันธ์
   activity    Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  qrCode      QRCode    @relation(fields: [qrCodeId], references: [id])
-  student     Student   @relation(fields: [studentId], references: [id])
+  qrCode      QRCode    @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
-  @@unique([qrCodeId, studentId]) // ป้องกันการสแกนซ้ำโดยคนเดียวกัน
+  @@unique([qrCodeId, studentId])
   @@map("activity_histories")
 }
 
-// ✅ ตารางสำหรับเก็บ requirement ของแต่ละคณะ
+// ตารางสำหรับเก็บ requirement ของแต่ละคณะ
 model FacultyRequirement {
   id          Int      @id @default(autoincrement())
-  faculty     String   @unique // ชื่อคณะ
-  centralMin  Int      @default(90) // กิจกรรมกลางขั้นต่ำ
-  facultyMin  Int      @default(90) // กิจกรรมคณะขั้นต่ำ  
-  freeMin     Int      @default(50) // กิจกรรมเสรีขั้นต่ำ
+  faculty     String   @unique
+  centralMin  Int      @default(90)
+  facultyMin  Int      @default(90)
+  freeMin     Int      @default(50)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
 
   @@map("faculty_requirements")
 }

@@ -20,44 +20,41 @@ export default function CreateActivityDialog({ open, onClose, onSuccess }: Creat
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (formData: FormData) => {
+  // แก้ handleSubmit
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
+      const formData = new FormData(e.currentTarget);
+      
+      // แปลง FormData เป็น JSON
+      const body = {
+        name: formData.get('name') as string,
+        description: formData.get('description') as string || null,
+        group: formData.get('type') as string,  // map type -> group
+        hours: Number(formData.get('hours')),
+        startDate: formData.get('date') as string || null,
+        location: formData.get('location') as string || null,
+      };
+
       const response = await fetch('/api/activities', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
       });
 
-      const result = await response.json();
-
-      if (result.success) {
-        // สร้าง QR Code อัตโนมัติหลังจากสร้างกิจกรรมสำเร็จ
-        const qrResponse = await fetch('/api/qr-codes/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            activityId: result.activity.id,
-            quantity: 1,
-          }),
-        });
-
-        const qrResult = await qrResponse.json();
-
-        if (qrResult.success) {
-          onSuccess();
-        } else {
-          setError('สร้างกิจกรรมสำเร็จ แต่ไม่สามารถสร้าง QR Code ได้');
-        }
-      } else {
-        setError(result.message);
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'สร้างกิจกรรมไม่สำเร็จ');
       }
+
+      onSuccess();
     } catch (err: any) {
-      setError('เกิดข้อผิดพลาดในการสร้างกิจกรรม');
-      console.error('Error creating activity:', err);
+      setError(err.message || 'เกิดข้อผิดพลาดในการสร้างกิจกรรม');
     } finally {
       setLoading(false);
     }
@@ -78,7 +75,7 @@ export default function CreateActivityDialog({ open, onClose, onSuccess }: Creat
           </button>
         </div>
 
-        <form action={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
               {error}

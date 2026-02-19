@@ -20,7 +20,7 @@ const activityTypeLabels: { [key: string]: string } = {
 };
 
 interface QRModalData {
-  activityId: string;
+  activityId: number;
   activityName: string;
   hours: number;
   qrCode: string;
@@ -47,7 +47,7 @@ export default function CreateActivityPage() {
           activityName: result.activity.name,
           hours: result.activity.hours,
           qrCode: result.qrCode.code,
-          activityType: result.activity.type
+          activityType: result.activity.group
         });
         setShowQRModal(true);
       } else {

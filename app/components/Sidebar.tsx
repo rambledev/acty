@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Plus, History, LayoutDashboard, UserCircle, Lock, LogOut, Menu, X } from 'lucide-react';
+import { Plus, History, LayoutDashboard, UserCircle, Lock, LogOut, Menu, X, Camera, ScanQrCode } from 'lucide-react';
 import { useState } from 'react';
+// เพิ่ม import
+import LogoutButton from './LogoutButton';
 
 interface SidebarProps {
   role: 'employee' | 'student';
@@ -21,6 +23,7 @@ export default function Sidebar({ role }: SidebarProps) {
   const studentMenuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/student/dashboard' },
     { icon: History, label: 'ประวัติกิจกรรม', href: '/student/history' },
+    { icon: ScanQrCode, label: 'Scan สะสมกิจกรรม', href: '/student/scan' },
   ];
 
   const menuItems = role === 'employee' ? employeeMenuItems : studentMenuItems;
@@ -93,26 +96,12 @@ export default function Sidebar({ role }: SidebarProps) {
         
         {/* Footer */}
         <div className="p-4 border-t border-green-100 space-y-2 bg-white">
-          <Link
-            href="/profile"
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-green-50 hover:text-green-700 transition-all font-medium border border-transparent hover:border-green-100"
-          >
-            <UserCircle className="w-5 h-5" />
-            โปรไฟล์
-          </Link>
-          <Link
-            href="/change-password"
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-green-50 hover:text-green-700 transition-all font-medium border border-transparent hover:border-green-100"
-          >
-            <Lock className="w-5 h-5" />
-            เปลี่ยนรหัสผ่าน
-          </Link>
-          <button
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-500 hover:bg-red-50 transition-all font-medium border border-transparent hover:border-red-100"
-          >
-            <LogOut className="w-5 h-5" />
-            ออกจากระบบ
-          </button>
+         
+          
+          {/* Footer */}
+<div className="p-4 border-t border-green-100 bg-white">
+  <LogoutButton />
+</div>
         </div>
       </div>
     </>

@@ -14,10 +14,10 @@ const REQUIRED_HOURS = {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { stdCode: string } }
+  { params }: { params: Promise<{ stdCode: string }> }
 ) {
   try {
-    const { stdCode } = params;
+    const { stdCode } = await params;
 
     // ดึงข้อมูลนักศึกษา
     const student = await prisma.student.findUnique({
@@ -55,11 +55,11 @@ export async function GET(
       const hours = activity.hours || 1; // ถ้าไม่มีกำหนดให้ 1 ชม.
 
       // รวมชั่วโมงตามกลุ่ม
-      if (activity.group === 1) {
+      if (activity.group === 'CENTRAL') {
         hoursByGroup.group1 += hours;
-      } else if (activity.group === 2) {
+      } else if (activity.group === 'FACULTY') {
         hoursByGroup.group2 += hours;
-      } else if (activity.group === 3) {
+      } else if (activity.group === 'FREE') {
         hoursByGroup.group3 += hours;
       }
 
@@ -68,9 +68,9 @@ export async function GET(
         id: activity.id,
         name: activity.name,
         group: activity.group,
-        groupName: 
-          activity.group === 1 ? 'ส่วนกลาง' :
-          activity.group === 2 ? 'คณะ' : 'เสรี',
+        groupName:
+          activity.group === 'CENTRAL' ? 'ส่วนกลาง' :
+          activity.group === 'FACULTY' ? 'คณะ' : 'เสรี',
         hours: hours,
         date: history.scannedAt.toISOString().split('T')[0],
         scannedAt: history.scannedAt.toISOString(),
@@ -126,10 +126,10 @@ export async function GET(
 // สำหรับ development: เพิ่ม endpoint POST เพื่อสร้างข้อมูลทดสอบ
 export async function POST(
   request: NextRequest,
-  { params }: { params: { stdCode: string } }
+  { params }: { params: Promise<{ stdCode: string }> }
 ) {
   try {
-    const { stdCode } = params;
+    const { stdCode } = await params;
     const body = await request.json();
 
     // ตัวอย่างการสร้างข้อมูลทดสอบ

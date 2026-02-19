@@ -1,71 +1,85 @@
 // app/api/qr-codes/generate/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-// กำหนด type ชั่วคราวแทน QRType
-type TempQRType = 'SINGLE_USE' | 'MULTI_USE' | 'LIMITED_USE';
+import { prisma } from '@/lib/prisma';
+import { decrypt } from '@/lib/session';
+import { randomBytes } from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
-    const { activityId, type, maxUses, expiredAt, quantity = 1 } = await request.json();
+    // ตรวจสอบ session
+    const sessionCookie = request.cookies.get('session');
+    if (!sessionCookie) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    // ตรวจสอบว่ามีกิจกรรมอยู่จริง
+    const sessionData = await decrypt(sessionCookie.value);
+    if (!sessionData) {
+      return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
+    }
+
+    const userRole = sessionData.user.role;
+    if (userRole !== 'ADMIN' && userRole !== 'EMPLOYEE') {
+      return NextResponse.json({ error: 'Permission denied' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { activityId, maxUses, expiredAt } = body;
+
+    if (!activityId) {
+      return NextResponse.json({ error: 'กรุณาระบุกิจกรรม' }, { status: 400 });
+    }
+
+    // ตรวจสอบว่ากิจกรรมมีอยู่จริง
     const activity = await prisma.activity.findUnique({
-      where: { id: parseInt(activityId) }
+      where: { id: Number(activityId) },
     });
 
     if (!activity) {
+      return NextResponse.json({ error: 'ไม่พบกิจกรรม' }, { status: 404 });
+    }
+
+    // ตรวจสอบว่ากิจกรรมนี้มี QR Code อยู่แล้วหรือไม่ (1 กิจกรรม = 1 QR)
+    const existingQR = await prisma.qRCode.findFirst({
+      where: { activityId: Number(activityId) },
+    });
+
+    if (existingQR) {
       return NextResponse.json(
-        { error: 'ไม่พบกิจกรรม' },
-        { status: 404 }
+        { error: 'กิจกรรมนี้มี QR Code อยู่แล้ว' },
+        { status: 400 }
       );
     }
 
-    const qrCodes = [];
+    // สร้างรหัส QR Code แบบ unique
+    const code = randomBytes(16).toString('hex');
 
-    // สร้าง QR Codes ตามจำนวนที่ต้องการ
-    for (let i = 0; i < quantity; i++) {
-      const qrCodeData = {
-        code: `QR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        activityId: parseInt(activityId),
-        type: type as TempQRType,
-        maxUses: parseInt(maxUses),
+    // สร้าง URL สำหรับ scan
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const scanUrl = `${baseUrl}/scan/${code}`;
+
+    const qrCode = await prisma.qRCode.create({
+      data: {
+        code,
+        activityId: Number(activityId),
+        type: 'MULTI_USE',
+        maxUses: maxUses || 50,
         currentUses: 0,
         isUsed: false,
-        expiredAt: expiredAt ? new Date(expiredAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 วัน
-      };
-
-      // ใช้ any ชั่วคราวเพื่อ bypass type checking
-      const qrCode = await prisma.qRCode.create({
-        data: qrCodeData as any
-      }) as any;
-
-      qrCodes.push({
-        id: qrCode.id,
-        code: qrCode.code,
-        url: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/scan/${qrCode.code}`,
-        expiredAt: qrCode.expiredAt,
-        type: qrCode.type,
-        maxUses: qrCode.maxUses,
-        currentUses: qrCode.currentUses
-      });
-    }
+        expiredAt: expiredAt ? new Date(expiredAt) : null,
+      },
+    });
 
     return NextResponse.json({
       success: true,
-      qrCodes,
-      message: `สร้าง QR Code สำเร็จ ${quantity} ตัว`
-    });
-
-  } catch (error: any) {
-    console.error('Error generating QR codes:', error);
-    return NextResponse.json(
-      { 
-        error: 'เกิดข้อผิดพลาดในการสร้าง QR Code',
-        details: error.message 
+      qrCode: {
+        ...qrCode,
+        url: scanUrl,
       },
+    }, { status: 201 });
+  } catch (error) {
+    console.error('Error generating QR code:', error);
+    return NextResponse.json(
+      { error: 'เกิดข้อผิดพลาดในการสร้าง QR Code' },
       { status: 500 }
     );
   }
