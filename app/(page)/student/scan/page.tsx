@@ -75,10 +75,11 @@ export default function StudentScanPage() {
 
   // ── รับผล QR ──────────────────────────────────────────────────────────────
   const handleQrDetected = useCallback(async (qrCode: string) => {
+    console.log('QR value:', qrCode) // เพิ่มบรรทัดนี้
     stopCamera();
     setProcessing(true);
     try {
-      const res  = await fetch('/api/student/scan', {
+      const res  = await fetch('/api/students/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ qrCode }),
