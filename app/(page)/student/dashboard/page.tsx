@@ -288,13 +288,14 @@ export default function DashboardPage() {
           </div>
           <h3 className="text-2xl font-bold mb-2">แสกน QR Code</h3>
           <p className="mb-6 text-green-50">แสกน QR Code เพื่อเพิ่มชั่วโมงกิจกรรม</p>
-          <button 
-            className="bg-white text-green-600 px-8 py-4 rounded-xl font-bold hover:bg-green-50 transition-all shadow-lg text-lg hover:scale-105 transform"
-            onClick={() => alert('เปิดหน้า QR Scanner')}
-          >
-            เปิดกล้องสแกน
-          </button>
+          <a href="/student/scan">
+  <button className="bg-white text-green-600 px-8 py-4 rounded-xl font-bold hover:bg-green-50 transition-all shadow-lg text-lg hover:scale-105 transform">
+    ไปยังหน้าแสกน qrcode
+  </button>
+</a>
         </div>
+
+
       </div>
     </div>
   );
