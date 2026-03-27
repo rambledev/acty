@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { QrCode, Camera, Check, AlertCircle, X, RotateCcw, User, Clock, Loader2 } from 'lucide-react';
+import { QrCode, Camera, Check, AlertCircle, X, User, Clock, Loader2 } from 'lucide-react';
 
 interface ScanResult {
   success: boolean;
@@ -16,17 +16,27 @@ const activityTypeColors: Record<string, string> = {
   FREE:    'bg-orange-100 text-orange-800 border-orange-200',
 };
 
+// ── ดึง code จาก URL หรือ plain code ────────────────────────────────────────
+function extractCode(raw: string): string {
+  try {
+    const url = new URL(raw.trim());
+    const parts = url.pathname.split('/').filter(Boolean);
+    return parts[parts.length - 1]; // เอาส่วนท้ายสุด เช่น abc123
+  } catch {
+    return raw.trim(); // ไม่ใช่ URL → ใช้ค่าตรงๆ
+  }
+}
+
 export default function StudentScanPage() {
-  const videoRef    = useRef<HTMLVideoElement>(null);
-  const streamRef   = useRef<MediaStream | null>(null);
-  const rafRef      = useRef<number>(0);
-  const detectorRef = useRef<any>(null);
-  const canvasRef   = useRef<HTMLCanvasElement>(null);
+  const videoRef   = useRef<HTMLVideoElement>(null);
+  const streamRef  = useRef<MediaStream | null>(null);
+  const rafRef     = useRef<number>(0);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const activeRef  = useRef(false); // ป้องกัน detect ซ้ำ
 
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [status,     setStatus]     = useState<'idle' | 'denied' | 'in_use' | 'error'>('idle');
   const [errMsg,     setErrMsg]     = useState('');
   const [user,       setUser]       = useState<any>(null);
 
@@ -39,8 +49,8 @@ export default function StudentScanPage() {
 
   useEffect(() => () => stopCamera(), []);
 
-  // ── หยุดกล้อง ─────────────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
+    activeRef.current = false;
     cancelAnimationFrame(rafRef.current);
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
@@ -48,41 +58,20 @@ export default function StudentScanPage() {
     setIsScanning(false);
   }, []);
 
-  // ── scan loop ด้วย BarcodeDetector ────────────────────────────────────────
-  const scanLoop = useCallback(async (onDetect: (code: string) => void) => {
-    const video    = videoRef.current;
-    const canvas   = canvasRef.current;
-    const detector = detectorRef.current;
-    if (!video || !canvas || !detector || video.readyState < 2) {
-      rafRef.current = requestAnimationFrame(() => scanLoop(onDetect));
-      return;
-    }
+  // ── ส่ง code ไป API ────────────────────────────────────────────────────────
+  const submitCode = useCallback(async (raw: string) => {
+    const code = extractCode(raw);
+    console.log('[scan] raw:', raw, '→ code:', code);
 
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')!.drawImage(video, 0, 0);
-
-    try {
-      const results = await detector.detect(canvas);
-      if (results.length > 0) {
-        onDetect(results[0].rawValue);
-        return; // หยุด loop
-      }
-    } catch { /* ไม่มี barcode ในเฟรมนี้ */ }
-
-    rafRef.current = requestAnimationFrame(() => scanLoop(onDetect));
-  }, []);
-
-  // ── รับผล QR ──────────────────────────────────────────────────────────────
-  const handleQrDetected = useCallback(async (qrCode: string) => {
-    console.log('QR value:', qrCode) // เพิ่มบรรทัดนี้
     stopCamera();
     setProcessing(true);
+    setErrMsg('');
+
     try {
       const res  = await fetch('/api/students/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qrCode }),
+        body: JSON.stringify({ qrCode: code }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -108,30 +97,44 @@ export default function StudentScanPage() {
     }
   }, [stopCamera]);
 
-  // ── เริ่มสแกน ─────────────────────────────────────────────────────────────
+  // ── scan loop ด้วย jsQR (รองรับทุก browser) ──────────────────────────────
+  const scanLoop = useCallback(async () => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !activeRef.current) return;
+
+    if (video.readyState >= 2 && video.videoWidth > 0) {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(video, 0, 0);
+
+      try {
+        const jsQR = (await import('jsqr')).default;
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'dontInvert',
+        });
+        if (result?.data) {
+          await submitCode(result.data);
+          return; // หยุด loop
+        }
+      } catch { /* ไม่มี QR ในเฟรมนี้ */ }
+    }
+
+    rafRef.current = requestAnimationFrame(scanLoop);
+  }, [submitCode]);
+
+  // ── เปิดกล้อง ─────────────────────────────────────────────────────────────
   const startScanning = useCallback(async () => {
-    setStatus('idle');
-    setErrMsg('');
     setScanResult(null);
+    setErrMsg('');
 
-    // ── สร้าง BarcodeDetector ──
-    // BarcodeDetector รองรับ Chrome 83+ / Edge 83+ / Android Chrome
-    // Safari ยังไม่รองรับ แต่ใช้ fallback ด้านล่างได้
-    if (!('BarcodeDetector' in window)) {
-      setStatus('error');
-      setErrMsg('เบราว์เซอร์ไม่รองรับ BarcodeDetector\nกรุณาใช้ Chrome บน Android หรือ Desktop');
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setErrMsg('เบราว์เซอร์ไม่รองรับการเข้าถึงกล้อง');
       return;
     }
 
-    try {
-      detectorRef.current = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-    } catch {
-      setStatus('error');
-      setErrMsg('ไม่สามารถสร้าง BarcodeDetector ได้');
-      return;
-    }
-
-    // ── เปิดกล้องด้วย getUserMedia ──
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -141,24 +144,25 @@ export default function StudentScanPage() {
       const video = videoRef.current!;
       video.srcObject = stream;
       await video.play();
+      activeRef.current = true;
       setIsScanning(true);
-      // เริ่ม scan loop
-      rafRef.current = requestAnimationFrame(() => scanLoop(handleQrDetected));
+      rafRef.current = requestAnimationFrame(scanLoop);
     } catch (err: any) {
       const name = err?.name ?? '';
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setStatus('denied');
+        setErrMsg('denied');
       } else if (name === 'NotReadableError') {
-        setStatus('in_use');
+        setErrMsg('กล้องถูกแอปอื่นใช้งานอยู่ ปิดแล้วลองใหม่');
       } else {
-        setStatus('error');
         setErrMsg(err?.message ?? 'เปิดกล้องไม่สำเร็จ');
       }
     }
-  }, [scanLoop, handleQrDetected]);
+  }, [scanLoop]);
 
-  const handleStop  = useCallback(() => { stopCamera(); setScanResult(null); }, [stopCamera]);
-  const handleReset = useCallback(() => { setScanResult(null); startScanning(); }, [startScanning]);
+  const handleStop = useCallback(() => {
+    stopCamera();
+    setScanResult(null);
+  }, [stopCamera]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 p-4">
@@ -202,15 +206,9 @@ export default function StudentScanPage() {
         {/* Body */}
         <div className="p-6 space-y-4">
 
-          {/* กล้อง — อยู่ใน DOM ตลอด */}
+          {/* Video + Canvas */}
           <div className="relative aspect-square bg-gray-900 rounded-2xl overflow-hidden">
-            <video
-              ref={videoRef}
-              className="w-full h-full object-cover"
-              playsInline
-              muted
-            />
-            {/* canvas สำหรับ BarcodeDetector — ซ่อนอยู่ */}
+            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
             <canvas ref={canvasRef} className="hidden" />
 
             {/* corner markers */}
@@ -247,7 +245,7 @@ export default function StudentScanPage() {
             )}
           </div>
 
-          {/* scanning indicator */}
+          {/* scanning status */}
           {isScanning && !processing && (
             <div className="flex items-center justify-center gap-2 text-green-600 text-sm font-medium">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -255,39 +253,27 @@ export default function StudentScanPage() {
             </div>
           )}
 
-          {/* Error states */}
-          {status === 'denied' && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center space-y-2">
-              <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
-              <p className="font-semibold text-red-800 text-sm">ไม่ได้รับอนุญาตใช้กล้อง</p>
-              <p className="text-red-500 text-xs">อนุญาตกล้องในแถบ URL แล้วรีเฟรช</p>
-              <button onClick={() => window.location.reload()}
-                className="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 mx-auto">
-                <RotateCcw className="w-3.5 h-3.5" />รีเฟรช
-              </button>
-            </div>
-          )}
-
-          {status === 'in_use' && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center space-y-2">
-              <AlertCircle className="w-8 h-8 text-yellow-400 mx-auto" />
-              <p className="font-semibold text-yellow-800 text-sm">กล้องถูกแอปอื่นใช้งานอยู่</p>
-              <p className="text-yellow-600 text-xs">ปิดแอปอื่นแล้วลองใหม่</p>
-              <button onClick={startScanning}
-                className="bg-yellow-500 text-white px-4 py-2 rounded-xl text-sm font-bold mx-auto block">
-                ลองใหม่
-              </button>
-            </div>
-          )}
-
-          {status === 'error' && (
+          {/* Error */}
+          {errMsg && errMsg !== 'denied' && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center space-y-2">
               <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
               <p className="font-semibold text-red-800 text-sm">เกิดข้อผิดพลาด</p>
-              <p className="text-red-500 text-xs whitespace-pre-line">{errMsg}</p>
+              <p className="text-red-500 text-xs">{errMsg}</p>
               <button onClick={startScanning}
                 className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold mx-auto block">
                 ลองใหม่
+              </button>
+            </div>
+          )}
+
+          {errMsg === 'denied' && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center space-y-2">
+              <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
+              <p className="font-semibold text-red-800 text-sm">ไม่ได้รับอนุญาตใช้กล้อง</p>
+              <p className="text-red-500 text-xs">อนุญาตกล้องในการตั้งค่าเบราว์เซอร์แล้วรีเฟรช</p>
+              <button onClick={() => window.location.reload()}
+                className="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold mx-auto block">
+                รีเฟรช
               </button>
             </div>
           )}
@@ -330,7 +316,9 @@ export default function StudentScanPage() {
               ) : (
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
                   <div className="flex items-start gap-3">
-                    <div className="bg-red-500 rounded-full p-2 shrink-0"><X className="w-5 h-5 text-white" /></div>
+                    <div className="bg-red-500 rounded-full p-2 shrink-0">
+                      <X className="w-5 h-5 text-white" />
+                    </div>
                     <div>
                       <h3 className="font-bold text-red-900 mb-1">ไม่สามารถสแกนได้</h3>
                       <p className="text-red-700 text-sm">{scanResult.message}</p>
@@ -342,7 +330,7 @@ export default function StudentScanPage() {
           )}
 
           {/* ปุ่ม */}
-          <div className="space-y-2 pt-1">
+          <div className="pt-1">
             {!isScanning ? (
               <button
                 onClick={startScanning}

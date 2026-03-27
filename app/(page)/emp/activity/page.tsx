@@ -216,7 +216,7 @@ export default function ActivitiesPage() {
       if (!res.ok) throw new Error('ไม่พบ QR Code');
       const data = await res.json();
 
-      const baseUrl = window.location.origin;
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       setViewingQRData({
         ...data.qrCode,
         url: `${baseUrl}/scan/${data.qrCode.code}`,
