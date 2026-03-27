@@ -163,7 +163,7 @@ export async function middleware(request: NextRequest) {
         const roleRedirects = {
           ADMIN: '/admin/dashboard',
           EMPLOYEE: '/emp/dashboard',
-          STUDENT: '/std/dashboard',
+          STUDENT: '/student/dashboard',
         };
         const redirectPath = roleRedirects[sessionData.user.role as keyof typeof roleRedirects] || '/login';
         return NextResponse.redirect(new URL(redirectPath, request.url));
