@@ -89,7 +89,7 @@ export async function middleware(request: NextRequest) {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set(
     'Permissions-Policy',
-    'camera=(self), microphone=(), geolocation=(), interest-cohort=()'
+    'camera=*, microphone=(), geolocation=(), interest-cohort=()'
   );
 
   // CSP Header
@@ -153,23 +153,24 @@ export async function middleware(request: NextRequest) {
     response.headers.set('x-user-data', Buffer.from(JSON.stringify(sessionData.user)).toString('base64'));
   }
 
-  // ===== 5. Redirect ไปที่ dashboard ตาม role ถ้ามี session แล้ว =====
-  if (pathname === '/login' || pathname === '/') {
-    const sessionCookie = request.cookies.get('session');
-    if (sessionCookie) {
-      const sessionData = await decrypt(sessionCookie.value);
-      if (sessionData && new Date(sessionData.expires) > new Date()) {
-        // Redirect ตาม role
-        const roleRedirects = {
-          ADMIN: '/admin/dashboard',
-          EMPLOYEE: '/emp/dashboard',
-          STUDENT: '/student/dashboard',
-        };
-        const redirectPath = roleRedirects[sessionData.user.role as keyof typeof roleRedirects] || '/login';
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
+  // ===== 5. Redirect ไปที่ dashboard ตาม role =====
+if (pathname === '/login' || pathname === '/') {
+  const sessionCookie = request.cookies.get('session');
+  if (sessionCookie) {
+    const sessionData = await decrypt(sessionCookie.value);
+    if (sessionData && new Date(sessionData.expires) > new Date()) {
+      const roleRedirects = {
+        ADMIN:    '/admin/dashboard',
+        EMPLOYEE: '/emp/dashboard',
+        STUDENT:  '/student/dashboard',
+      };
+      const redirectPath = roleRedirects[sessionData.user.role as keyof typeof roleRedirects] || '/login';
+      
+      // ✅ เพิ่ม ?welcome=1 เพื่อให้ dashboard รู้ว่ามาจาก auto-redirect
+      return NextResponse.redirect(new URL(redirectPath + '?welcome=1', request.url));
     }
   }
+}
 
   // ===== 6. API Routes Protection =====
   const protectedApiPaths = ['/api/activities', '/api/qrcode', '/api/scan', '/api/users'];
